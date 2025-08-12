@@ -3,7 +3,7 @@ Hyper Python Utils - AWS S3 and Athena utilities for data processing with Polars
 """
 
 from .file_handler import FileHandler
-from .query_manager import QueryManager
+from .query_manager import QueryManager, EmptyResultError, AthenaQueryError
 
-__version__ = "0.1.0"
-__all__ = ["FileHandler", "QueryManager"]
+__version__ = "0.1.1"
+__all__ = ["FileHandler", "QueryManager", "EmptyResultError", "AthenaQueryError"]
