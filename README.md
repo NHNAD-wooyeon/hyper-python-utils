@@ -51,20 +51,49 @@ combined_df = handler.load_all_objects_parallel("data/batch_*/", max_workers=4)
 ### QueryManager Usage
 
 ```python
-from hyper_python_utils import QueryManager
+from hyper_python_utils import QueryManager, EmptyResultError
+import polars as pl
 
-# Initialize QueryManager
-query_manager = QueryManager(bucket="my-athena-results")
+# Initialize QueryManager with custom result prefix and auto cleanup
+query_manager = QueryManager(
+    bucket="my-athena-results",
+    result_prefix="custom/query_results/",
+    auto_cleanup=True  # Default: True - automatically delete query result files after reading
+)
 
-# Execute a query
+# Method 1: Execute query and get DataFrame result directly (recommended)
 query = "SELECT * FROM my_table LIMIT 100"
-query_id = query_manager.run_query(query, database="my_database")
+try:
+    df = query_manager.query(query, database="my_database")
+    print(df)
+except EmptyResultError:
+    print("Query returned no results")
 
-# Wait for completion
+# Method 2: Manual query execution with result retrieval
+query_id = query_manager.execute(query, database="my_database")
 result_location = query_manager.wait_for_completion(query_id)
+df = query_manager.get_result(query_id)  # Auto cleanup based on QueryManager setting
 
-# Clean up old query results
+# Method 2b: Override auto cleanup for specific query
+df_no_cleanup = query_manager.get_result(query_id, auto_cleanup=False)  # Keep result file
+
+# Method 3: Execute UNLOAD query and get list of output files
+unload_query = """
+UNLOAD (SELECT * FROM my_large_table)
+TO 's3://my-bucket/unloaded-data/'
+WITH (format = 'PARQUET', compression = 'SNAPPY')
+"""
+output_files = query_manager.unload(unload_query, database="my_database")
+print(f"Unloaded files: {output_files}")
+
+# Manual cleanup of old query results (if auto_cleanup is disabled)
 query_manager.delete_query_results_by_prefix("s3://my-bucket/old-results/")
+
+# Disable auto cleanup for all queries
+query_manager_no_cleanup = QueryManager(
+    bucket="my-athena-results",
+    auto_cleanup=False
+)
 ```
 
 ## Requirements
