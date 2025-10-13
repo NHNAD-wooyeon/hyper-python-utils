@@ -3,7 +3,8 @@ import time
 import io
 import re
 import polars as pl
-from typing import Literal
+import pandas as pd
+from typing import Literal, Union
 
 
 class AthenaQueryError(Exception):
@@ -48,7 +49,7 @@ class QueryManager:
             time.sleep(interval)
         return response['QueryExecution']['ResultConfiguration']['OutputLocation']
 
-    def get_result(self, query_id: str, auto_cleanup: bool = None) -> pl.DataFrame:
+    def get_result(self, query_id: str, auto_cleanup: bool = None, output_format: Literal["polars", "pandas"] = "polars") -> Union[pl.DataFrame, pd.DataFrame]:
         response = self.athena.get_query_execution(QueryExecutionId=query_id)
         result_location = response['QueryExecution']['ResultConfiguration']['OutputLocation']
         
@@ -64,13 +65,17 @@ class QueryManager:
             obj = self.s3.get_object(Bucket=bucket, Key=key)
             csv_content = obj['Body'].read().decode('utf-8')
             
-            # Read CSV with polars
-            df = pl.read_csv(io.StringIO(csv_content))
-            
-            # Check if DataFrame is empty
-            if df.height == 0:
-                raise EmptyResultError("Query returned no results")
-            
+            # Read CSV with polars first
+            df_polars = pl.read_csv(io.StringIO(csv_content))
+
+            # Return empty DataFrame if no results (no exception)
+            if df_polars.height == 0:
+                print("[Athena] Query returned no results (empty DataFrame)")
+                result_df = pd.DataFrame() if output_format == "pandas" else df_polars
+            else:
+                # Convert to pandas if requested
+                result_df = df_polars.to_pandas() if output_format == "pandas" else df_polars
+
             # Auto cleanup if enabled
             cleanup_enabled = auto_cleanup if auto_cleanup is not None else self._auto_cleanup
             if cleanup_enabled:
@@ -85,15 +90,15 @@ class QueryManager:
                     print(f"[S3] Cleaned up query result: {result_location}")
                 except Exception as cleanup_error:
                     print(f"[S3] Warning: Failed to cleanup query result: {cleanup_error}")
-            
-            return df
+
+            return result_df
         except Exception as e:
             raise AthenaQueryError(f"Failed to read query result: {str(e)}")
 
-    def query(self, query: str, database: str, auto_cleanup: bool = None) -> pl.DataFrame:
+    def query(self, query: str, database: str, auto_cleanup: bool = None, output_format: Literal["polars", "pandas"] = "polars") -> Union[pl.DataFrame, pd.DataFrame]:
         query_id = self.execute(query, database)
         self.wait_for_completion(query_id)
-        return self.get_result(query_id, auto_cleanup=auto_cleanup)
+        return self.get_result(query_id, auto_cleanup=auto_cleanup, output_format=output_format)
 
     def unload(self, query: str, database: str) -> list[str]:
         query_id = self.execute(query, database)
