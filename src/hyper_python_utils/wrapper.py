@@ -82,7 +82,7 @@ def query_unload(database: str, query: str, option: Literal["pandas", "polars"] 
     """
 
     # Execute UNLOAD and get file locations
-    unloaded_files = _query_manager.unload(query=unload_query, database=database)
+    unloaded_files = _query_manager.unload(query=unload_query, database=database, unload_location=s3_location)
 
     if not unloaded_files:
         print("[UNLOAD] No files were created (empty result set)")

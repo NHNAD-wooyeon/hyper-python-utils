@@ -102,21 +102,33 @@ class QueryManager:
         self.wait_for_completion(query_id)
         return self.get_result(query_id, auto_cleanup=auto_cleanup, output_format=output_format)
 
-    def unload(self, query: str, database: str) -> list[str]:
+    def unload(self, query: str, database: str, unload_location: str = None) -> list[str]:
         query_id = self.execute(query, database)
         result_location = self.wait_for_completion(query_id)
-        
-        # Extract the base path for unloaded files
-        match = re.match(r's3://([^/]+)/(.+)', result_location)
+
+        # Use provided unload_location or extract from result_location
+        if unload_location:
+            search_location = unload_location
+        else:
+            # Extract the base path for unloaded files (legacy behavior)
+            match = re.match(r's3://([^/]+)/(.+)', result_location)
+            if not match:
+                raise ValueError(f"Invalid S3 result location: {result_location}")
+            bucket, key_prefix = match.groups()
+            base_prefix = key_prefix.rsplit('/', 1)[0] + '/'
+            search_location = f's3://{bucket}/{base_prefix}'
+
+        # Extract bucket and prefix from search location
+        match = re.match(r's3://([^/]+)/(.+)', search_location.rstrip('/'))
         if not match:
-            raise ValueError(f"Invalid S3 result location: {result_location}")
-        
-        bucket, key_prefix = match.groups()
-        
-        # List all files that were created by the UNLOAD operation
-        # UNLOAD creates files with names like: query_id/part-00000.parquet, query_id/part-00001.parquet, etc.
-        base_prefix = key_prefix.rsplit('/', 1)[0] + '/'
-        
+            raise ValueError(f"Invalid S3 location: {search_location}")
+
+        bucket, base_prefix = match.groups()
+        if not base_prefix.endswith('/'):
+            base_prefix += '/'
+
+        print(f"[UNLOAD] Searching for files in: s3://{bucket}/{base_prefix}")
+
         paginator = self.s3.get_paginator('list_objects_v2')
         page_iterator = paginator.paginate(Bucket=bucket, Prefix=base_prefix)
         
