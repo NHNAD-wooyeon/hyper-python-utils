@@ -25,6 +25,9 @@ class QueryManager:
         self.s3 = boto3.client('s3', region_name='ap-northeast-2')
 
     def execute(self, query: str, database: str) -> str:
+        # Remove trailing semicolon if present
+        query = query.strip().rstrip(';')
+
         response = self.athena.start_query_execution(
             QueryString=query,
             QueryExecutionContext={'Database': database},
@@ -38,14 +41,14 @@ class QueryManager:
             response = self.athena.get_query_execution(QueryExecutionId=query_id)
             status = response['QueryExecution']['Status']['State']
             if status == 'SUCCEEDED':
-                print("[Athena] Query succeeded")
+                elapsed_time = time.time() - start_time
+                print(f"[Athena] Query succeeded ({elapsed_time:.2f}s)")
                 break
             elif status in ['FAILED', 'CANCELLED']:
                 reason = response['QueryExecution']['Status'].get('StateChangeReason', 'Unknown')
                 raise AthenaQueryError(f"Query {status}: {reason}")
             elif (time.time() - start_time) > timeout:
                 raise TimeoutError("Query timed out")
-            print(f"[Athena] Query status: {status}..")
             time.sleep(interval)
         return response['QueryExecution']['ResultConfiguration']['OutputLocation']
 
@@ -76,7 +79,7 @@ class QueryManager:
                 # Convert to pandas if requested
                 result_df = df_polars.to_pandas() if output_format == "pandas" else df_polars
 
-            # Auto cleanup if enabled
+            # Auto cleanup if enabled (silent cleanup, no logs)
             cleanup_enabled = auto_cleanup if auto_cleanup is not None else self._auto_cleanup
             if cleanup_enabled:
                 try:
@@ -87,9 +90,8 @@ class QueryManager:
                         self.s3.delete_object(Bucket=bucket, Key=metadata_key)
                     except:
                         pass  # Metadata file might not exist
-                    print(f"[S3] Cleaned up query result: {result_location}")
                 except Exception as cleanup_error:
-                    print(f"[S3] Warning: Failed to cleanup query result: {cleanup_error}")
+                    pass  # Silent cleanup failure
 
             return result_df
         except Exception as e:

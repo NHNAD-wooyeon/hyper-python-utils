@@ -98,15 +98,18 @@ def query_unload(database: str, query: str, option: Literal["pandas", "polars"] 
 
         # Convert to pandas if requested
         df = df_polars.to_pandas() if option == "pandas" else df_polars
-    except Exception as e:
-        raise Exception(f"Failed to read unloaded Parquet files: {str(e)}")
-    finally:
-        # Always cleanup UNLOAD files (regardless of auto_cleanup setting)
-        # because these are temporary files that were only created for this operation
+
+        # Cleanup UNLOAD files after successful read (silent cleanup)
         try:
             _query_manager.delete_query_results_by_prefix(s3_location)
-            print(f"[S3] Cleaned up UNLOAD directory: {s3_location}")
-        except Exception as cleanup_error:
-            print(f"[S3] Warning: Failed to cleanup UNLOAD files: {cleanup_error}")
+        except Exception:
+            pass  # Silent cleanup failure
 
-    return df
+        return df
+    except Exception as e:
+        # If read fails, still try to cleanup but don't hide the original error
+        try:
+            _query_manager.delete_query_results_by_prefix(s3_location)
+        except Exception:
+            pass
+        raise Exception(f"Failed to read unloaded Parquet files: {str(e)}")

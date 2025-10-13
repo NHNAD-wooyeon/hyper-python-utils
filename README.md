@@ -1,11 +1,11 @@
 # Hyper Python Utils
 
-![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)
+![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![PyPI](https://img.shields.io/pypi/v/hyper-python-utils.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-AWS S3 and Athena utilities for data processing with Polars.
+AWS S3 and Athena utilities for data processing with Pandas and Polars.
 
 ## Installation
 
@@ -15,18 +15,70 @@ pip install hyper-python-utils
 
 ## Features
 
+- **Simple Query Functions (New in v0.2.0)**: Easy-to-use wrapper functions
+  - `query()`: Execute Athena queries with minimal setup
+  - `query_unload()`: High-performance queries for large datasets using UNLOAD
+  - Support for both Pandas and Polars DataFrames
+  - Automatic cleanup and optimized performance
+
 - **FileHandler**: S3 file operations with Polars DataFrames
   - Upload/download CSV and Parquet files
   - Parallel loading of multiple files
   - Partitioned uploads by range or date
   - Support for compressed formats
 
-- **QueryManager**: Athena query execution and management
+- **QueryManager**: Advanced Athena query execution and management
   - Execute queries with result monitoring
   - Clean up query result files
   - Error handling and timeouts
+  - Full control over query execution
 
 ## Quick Start
+
+### Simple Query Functions (Recommended for Most Use Cases)
+
+The easiest way to query Athena data:
+
+```python
+import hyper_python_utils as hp
+
+# Execute a simple query (returns pandas DataFrame by default)
+df = hp.query(
+    database="my_database",
+    query="SELECT * FROM my_table LIMIT 100"
+)
+print(df)
+print(type(df))  # <class 'pandas.core.frame.DataFrame'>
+
+# Get results as polars DataFrame
+df = hp.query(
+    database="my_database",
+    query="SELECT * FROM my_table LIMIT 100",
+    option="polars"
+)
+print(type(df))  # <class 'polars.dataframe.frame.DataFrame'>
+
+# For large datasets, use UNLOAD (4x faster, optimized with Parquet + GZIP)
+df = hp.query_unload(
+    database="my_database",
+    query="SELECT * FROM large_table WHERE date > '2024-01-01'"
+)
+# Returns pandas DataFrame by default, add option="polars" for Polars
+
+# Queries with semicolons are automatically handled
+df = hp.query(database="my_database", query="SELECT * FROM table;")  # Works fine!
+```
+
+**Key Features:**
+- Pre-configured with optimal settings (bucket: `athena-query-results-for-hyper`)
+- Automatic cleanup of temporary files
+- No exceptions on empty results (returns empty DataFrame)
+- Query execution time displayed in logs
+- `query_unload()` uses Parquet + GZIP for 4x performance boost
+
+**When to use which?**
+- `query()`: Normal queries, small to medium datasets (< 1M rows)
+- `query_unload()`: Large datasets (> 1M rows), when performance matters
 
 ### FileHandler Usage
 
@@ -53,26 +105,29 @@ handler.upload_dataframe_partitioned_by_range(
 combined_df = handler.load_all_objects_parallel("data/batch_*/", max_workers=4)
 ```
 
-### QueryManager Usage
+### QueryManager Usage (Advanced)
+
+For advanced use cases requiring custom configuration:
 
 ```python
-from hyper_python_utils import QueryManager, EmptyResultError
+from hyper_python_utils import QueryManager
 import polars as pl
 
-# Initialize QueryManager with custom result prefix and auto cleanup
+# Initialize QueryManager with custom settings
 query_manager = QueryManager(
     bucket="my-athena-results",
     result_prefix="custom/query_results/",
     auto_cleanup=True  # Default: True - automatically delete query result files after reading
 )
 
-# Method 1: Execute query and get DataFrame result directly (recommended)
+# Method 1: Execute query and get DataFrame result directly
 query = "SELECT * FROM my_table LIMIT 100"
-try:
-    df = query_manager.query(query, database="my_database")
-    print(df)
-except EmptyResultError:
-    print("Query returned no results")
+df = query_manager.query(query, database="my_database")
+print(df)  # Returns empty DataFrame if no results (no exception thrown)
+
+# Choose output format (new in v0.2.0)
+df_polars = query_manager.query(query, database="my_database", output_format="polars")
+df_pandas = query_manager.query(query, database="my_database", output_format="pandas")
 
 # Method 2: Manual query execution with result retrieval
 query_id = query_manager.execute(query, database="my_database")
@@ -86,12 +141,12 @@ df_no_cleanup = query_manager.get_result(query_id, auto_cleanup=False)  # Keep r
 unload_query = """
 UNLOAD (SELECT * FROM my_large_table)
 TO 's3://my-bucket/unloaded-data/'
-WITH (format = 'PARQUET', compression = 'SNAPPY')
+WITH (format = 'PARQUET', compression = 'GZIP')
 """
 output_files = query_manager.unload(unload_query, database="my_database")
 print(f"Unloaded files: {output_files}")
 
-# Manual cleanup of old query results (if auto_cleanup is disabled)
+# Manual cleanup of query results
 query_manager.delete_query_results_by_prefix("s3://my-bucket/old-results/")
 
 # Disable auto cleanup for all queries
@@ -106,6 +161,7 @@ query_manager_no_cleanup = QueryManager(
 - Python >= 3.8
 - boto3 >= 1.26.0
 - polars >= 0.18.0
+- pandas >= 1.5.0
 
 ## AWS Configuration
 
@@ -117,6 +173,23 @@ Make sure your AWS credentials are configured either through:
 Required permissions:
 - S3: `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, `s3:DeleteObject`
 - Athena: `athena:StartQueryExecution`, `athena:GetQueryExecution`
+
+## Changelog
+
+### v0.3.0 (Latest)
+- **New**: Added `query()` and `query_unload()` wrapper functions for simplified usage
+- **New**: Support for both Pandas and Polars DataFrames (Pandas is default)
+- **Improved**: UNLOAD queries now use Parquet + GZIP (4x performance improvement)
+- **Improved**: Empty query results return empty DataFrame instead of throwing exception
+- **Improved**: Query execution time now displayed in logs
+- **Improved**: Automatic removal of trailing semicolons in queries
+- **Improved**: Silent cleanup (removed unnecessary log messages)
+- **Fixed**: UNLOAD cleanup timing issue resolved
+
+### v0.1.2
+- Initial stable release
+- FileHandler for S3 operations
+- QueryManager for Athena queries
 
 ## License
 
