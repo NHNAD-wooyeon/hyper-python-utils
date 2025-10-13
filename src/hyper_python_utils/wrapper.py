@@ -38,7 +38,7 @@ def query(database: str, query: str, option: Literal["pandas", "polars"] = "pand
 def query_unload(database: str, query: str, option: Literal["pandas", "polars"] = "pandas") -> Union[pd.DataFrame, pl.DataFrame]:
     """
     Execute an Athena UNLOAD query and return results as a DataFrame.
-    The UNLOAD operation writes results to S3 in Parquet format, then reads them back and cleans up automatically.
+    The UNLOAD operation writes results to S3 in Parquet format, then reads them back.
 
     Args:
         database: Athena database name
@@ -67,7 +67,7 @@ def query_unload(database: str, query: str, option: Literal["pandas", "polars"] 
         - The function automatically wraps your query with UNLOAD syntax
         - Unloads to: s3://athena-query-results-for-hyper/query_results_for_unload/{uuid}/
         - Uses Parquet format with GZIP compression (best performance and compression ratio)
-        - Automatically cleans up S3 files after loading
+        - Files are kept in S3 (not automatically deleted)
     """
     # Generate unique prefix for this UNLOAD operation
     unique_id = str(uuid.uuid4())[:8]
@@ -88,7 +88,7 @@ def query_unload(database: str, query: str, option: Literal["pandas", "polars"] 
         print("[UNLOAD] No files were created (empty result set)")
         return pd.DataFrame() if option == "pandas" else pl.DataFrame()
 
-    print(f"[UNLOAD] Created {len(unloaded_files)} file(s)")
+    print(f"[UNLOAD] Created {len(unloaded_files)} file(s) at {s3_location}")
 
     # Read all unloaded Parquet files into a single DataFrame
     try:
@@ -99,17 +99,6 @@ def query_unload(database: str, query: str, option: Literal["pandas", "polars"] 
         # Convert to pandas if requested
         df = df_polars.to_pandas() if option == "pandas" else df_polars
 
-        # Cleanup UNLOAD files after successful read (silent cleanup)
-        try:
-            _query_manager.delete_query_results_by_prefix(s3_location)
-        except Exception:
-            pass  # Silent cleanup failure
-
         return df
     except Exception as e:
-        # If read fails, still try to cleanup but don't hide the original error
-        try:
-            _query_manager.delete_query_results_by_prefix(s3_location)
-        except Exception:
-            pass
         raise Exception(f"Failed to read unloaded Parquet files: {str(e)}")

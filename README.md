@@ -1,6 +1,6 @@
 # Hyper Python Utils
 
-![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![PyPI](https://img.shields.io/pypi/v/hyper-python-utils.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -71,10 +71,10 @@ df = hp.query(database="my_database", query="SELECT * FROM table;")  # Works fin
 
 **Key Features:**
 - Pre-configured with optimal settings (bucket: `athena-query-results-for-hyper`)
-- Automatic cleanup of temporary files
+- Automatic cleanup of temporary files (for `query()` only)
 - No exceptions on empty results (returns empty DataFrame)
 - Query execution time displayed in logs
-- `query_unload()` uses Parquet + GZIP for 4x performance boost
+- `query_unload()` uses Parquet + GZIP for 4x performance boost (files kept in S3)
 
 **When to use which?**
 - `query()`: Normal queries, small to medium datasets (< 1M rows)
@@ -176,7 +176,11 @@ Required permissions:
 
 ## Changelog
 
-### v0.3.0 (Latest)
+### v0.3.1 (Latest)
+- **Fixed**: Removed automatic cleanup for UNLOAD files to prevent timing issues
+- **Improved**: UNLOAD files now kept in S3 for reliable access
+
+### v0.3.0
 - **New**: Added `query()` and `query_unload()` wrapper functions for simplified usage
 - **New**: Support for both Pandas and Polars DataFrames (Pandas is default)
 - **Improved**: UNLOAD queries now use Parquet + GZIP (4x performance improvement)
@@ -184,7 +188,6 @@ Required permissions:
 - **Improved**: Query execution time now displayed in logs
 - **Improved**: Automatic removal of trailing semicolons in queries
 - **Improved**: Silent cleanup (removed unnecessary log messages)
-- **Fixed**: UNLOAD cleanup timing issue resolved
 
 ### v0.1.2
 - Initial stable release
