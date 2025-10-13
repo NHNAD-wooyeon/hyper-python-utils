@@ -1,6 +1,6 @@
 # Hyper Python Utils
 
-![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)
+![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![PyPI](https://img.shields.io/pypi/v/hyper-python-utils.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -176,7 +176,11 @@ Required permissions:
 
 ## Changelog
 
-### v0.3.1 (Latest)
+### v0.3.2 (Latest)
+- **Fixed**: Improved file filtering for UNLOAD to only include Parquet files (.parquet, .parquet.gz)
+- **Improved**: Added debug logging to show which files are being read during UNLOAD
+
+### v0.3.1
 - **Fixed**: Removed automatic cleanup for UNLOAD files to prevent timing issues
 - **Improved**: UNLOAD files now kept in S3 for reliable access
 

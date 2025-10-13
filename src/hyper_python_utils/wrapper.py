@@ -90,6 +90,10 @@ def query_unload(database: str, query: str, option: Literal["pandas", "polars"] 
 
     print(f"[UNLOAD] Created {len(unloaded_files)} file(s) at {s3_location}")
 
+    # Debug: Print file list to help diagnose issues
+    for file_path in unloaded_files:
+        print(f"[UNLOAD] Reading file: {file_path}")
+
     # Read all unloaded Parquet files into a single DataFrame
     try:
         # Read with polars first (faster for large files)

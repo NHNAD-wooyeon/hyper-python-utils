@@ -124,10 +124,10 @@ class QueryManager:
         for page in page_iterator:
             for obj in page.get('Contents', []):
                 key = obj['Key']
-                # Skip the metadata file created by Athena
-                if not key.endswith('.metadata'):
+                # Only include Parquet files (with or without .gz compression)
+                if key.endswith('.parquet') or key.endswith('.parquet.gz'):
                     unloaded_files.append(f's3://{bucket}/{key}')
-        
+
         return unloaded_files
 
     def delete_query_results_by_prefix(self, s3_prefix_url: str):
