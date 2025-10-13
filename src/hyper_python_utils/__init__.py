@@ -6,7 +6,7 @@ from .file_handler import FileHandler
 from .query_manager import QueryManager, EmptyResultError, AthenaQueryError
 from .wrapper import query, query_unload
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 __all__ = [
     "FileHandler",
     "QueryManager",
