@@ -119,9 +119,12 @@ class QueryManager:
         page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
 
         files = []
+        all_objects = []
         for page in page_iterator:
             for obj in page.get('Contents', []):
                 key = obj['Key']
+                all_objects.append(key)
+
                 # Include Parquet files with or without extension
                 # Athena UNLOAD creates files like: prefix/uuid (without extension)
                 # or with extensions: .parquet, .parquet.gz
@@ -129,6 +132,15 @@ class QueryManager:
                     key.endswith('.parquet.gz') or
                     (not key.endswith('/') and '.' not in key.split('/')[-1])):
                     files.append(f's3://{bucket}/{key}')
+
+        # Debug: Print all objects found
+        if all_objects:
+            print(f"[UNLOAD DEBUG] Found {len(all_objects)} objects in S3:")
+            for obj_key in all_objects:
+                print(f"  - {obj_key}")
+            print(f"[UNLOAD DEBUG] Filtered to {len(files)} files")
+        else:
+            print(f"[UNLOAD DEBUG] No objects found at s3://{bucket}/{prefix}")
 
         return files
 

@@ -124,24 +124,27 @@ def load_unload_data(s3_directory: str, option: Literal["pandas", "polars"] = "p
         >>> df = hp.load_unload_data(s3_path, option="pandas")
 
     Note:
-        - Reads all .parquet and .parquet.gz files from the specified directory
+        - Reads all Parquet files from the specified S3 directory
         - Returns empty DataFrame if no files are found
     """
-    unloaded_files = _query_manager.unload(unload_location=s3_directory)
-
-    if not unloaded_files:
-        print("[UNLOAD] No files found (empty result set)")
-        return pd.DataFrame() if option == "pandas" else pl.DataFrame()
-
-    print(f"[UNLOAD] Loading {len(unloaded_files)} file(s)")
+    # Ensure directory path ends with /
+    if not s3_directory.endswith('/'):
+        s3_directory += '/'
 
     try:
-        df_polars = pl.read_parquet(unloaded_files)
-        print(f"[UNLOAD] Loaded {df_polars.height:,} rows")
+        # Let Polars handle S3 directory reading directly (uses fsspec internally)
+        df_polars = pl.read_parquet(s3_directory)
+
+        if df_polars.height == 0:
+            print("[UNLOAD] No data found (empty result set)")
+        else:
+            print(f"[UNLOAD] Loaded {df_polars.height:,} rows")
 
         return df_polars.to_pandas() if option == "pandas" else df_polars
     except Exception as e:
-        raise Exception(f"Failed to read Parquet files: {str(e)}")
+        # If Polars fails, return empty DataFrame
+        print(f"[UNLOAD] No files found or empty result: {str(e)}")
+        return pd.DataFrame() if option == "pandas" else pl.DataFrame()
 
 
 def cleanup_unload_data(s3_directory: str) -> None:
