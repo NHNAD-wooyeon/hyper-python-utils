@@ -40,58 +40,50 @@ class QueryManager:
         while True:
             response = self.athena.get_query_execution(QueryExecutionId=query_id)
             status = response['QueryExecution']['Status']['State']
+
             if status == 'SUCCEEDED':
-                elapsed_time = time.time() - start_time
-                print(f"[Athena] Query succeeded ({elapsed_time:.2f}s)")
-                break
-            elif status in ['FAILED', 'CANCELLED']:
+                elapsed = time.time() - start_time
+                print(f"[Athena] Query succeeded ({elapsed:.2f}s)")
+                return response['QueryExecution']['ResultConfiguration']['OutputLocation']
+
+            if status in ['FAILED', 'CANCELLED']:
                 reason = response['QueryExecution']['Status'].get('StateChangeReason', 'Unknown')
                 raise AthenaQueryError(f"Query {status}: {reason}")
-            elif (time.time() - start_time) > timeout:
-                raise TimeoutError("Query timed out")
+
+            if (time.time() - start_time) > timeout:
+                raise TimeoutError(f"Query timed out after {timeout}s")
+
             time.sleep(interval)
-        return response['QueryExecution']['ResultConfiguration']['OutputLocation']
 
     def get_result(self, query_id: str, auto_cleanup: bool = None, output_format: Literal["polars", "pandas"] = "polars") -> Union[pl.DataFrame, pd.DataFrame]:
         response = self.athena.get_query_execution(QueryExecutionId=query_id)
         result_location = response['QueryExecution']['ResultConfiguration']['OutputLocation']
-        
-        # Extract bucket and key from S3 URL
+
         match = re.match(r's3://([^/]+)/(.+)', result_location)
         if not match:
             raise ValueError(f"Invalid S3 result location: {result_location}")
-        
+
         bucket, key = match.groups()
-        
-        # Download CSV result from S3
+
         try:
             obj = self.s3.get_object(Bucket=bucket, Key=key)
             csv_content = obj['Body'].read().decode('utf-8')
-            
-            # Read CSV with polars first
             df_polars = pl.read_csv(io.StringIO(csv_content))
 
-            # Return empty DataFrame if no results (no exception)
             if df_polars.height == 0:
-                print("[Athena] Query returned no results (empty DataFrame)")
+                print("[Athena] Query returned no results")
                 result_df = pd.DataFrame() if output_format == "pandas" else df_polars
             else:
-                # Convert to pandas if requested
                 result_df = df_polars.to_pandas() if output_format == "pandas" else df_polars
 
-            # Auto cleanup if enabled (silent cleanup, no logs)
+            # Auto cleanup if enabled
             cleanup_enabled = auto_cleanup if auto_cleanup is not None else self._auto_cleanup
             if cleanup_enabled:
                 try:
                     self.s3.delete_object(Bucket=bucket, Key=key)
-                    # Also delete metadata file if exists
-                    metadata_key = key + '.metadata'
-                    try:
-                        self.s3.delete_object(Bucket=bucket, Key=metadata_key)
-                    except:
-                        pass  # Metadata file might not exist
-                except Exception as cleanup_error:
-                    pass  # Silent cleanup failure
+                    self.s3.delete_object(Bucket=bucket, Key=key + '.metadata')
+                except:
+                    pass
 
             return result_df
         except Exception as e:
@@ -102,45 +94,38 @@ class QueryManager:
         self.wait_for_completion(query_id)
         return self.get_result(query_id, auto_cleanup=auto_cleanup, output_format=output_format)
 
-    def unload(self, query: str, database: str, unload_location: str = None) -> list[str]:
-        query_id = self.execute(query, database)
-        result_location = self.wait_for_completion(query_id)
-
-        # Use provided unload_location or extract from result_location
-        if unload_location:
+    def unload(self, query: str = None, database: str = None, unload_location: str = None) -> list[str]:
+        """
+        Execute UNLOAD query or list files from an S3 location.
+        """
+        if query and database:
+            query_id = self.execute(query, database)
+            self.wait_for_completion(query_id)
+            search_location = unload_location if unload_location else None
+        elif unload_location:
             search_location = unload_location
         else:
-            # Extract the base path for unloaded files (legacy behavior)
-            match = re.match(r's3://([^/]+)/(.+)', result_location)
-            if not match:
-                raise ValueError(f"Invalid S3 result location: {result_location}")
-            bucket, key_prefix = match.groups()
-            base_prefix = key_prefix.rsplit('/', 1)[0] + '/'
-            search_location = f's3://{bucket}/{base_prefix}'
+            raise ValueError("Either (query and database) or unload_location must be provided")
 
-        # Extract bucket and prefix from search location
         match = re.match(r's3://([^/]+)/(.+)', search_location.rstrip('/'))
         if not match:
             raise ValueError(f"Invalid S3 location: {search_location}")
 
-        bucket, base_prefix = match.groups()
-        if not base_prefix.endswith('/'):
-            base_prefix += '/'
-
-        print(f"[UNLOAD] Searching for files in: s3://{bucket}/{base_prefix}")
+        bucket, prefix = match.groups()
+        if not prefix.endswith('/'):
+            prefix += '/'
 
         paginator = self.s3.get_paginator('list_objects_v2')
-        page_iterator = paginator.paginate(Bucket=bucket, Prefix=base_prefix)
-        
-        unloaded_files = []
+        page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
+
+        files = []
         for page in page_iterator:
             for obj in page.get('Contents', []):
                 key = obj['Key']
-                # Only include Parquet files (with or without .gz compression)
                 if key.endswith('.parquet') or key.endswith('.parquet.gz'):
-                    unloaded_files.append(f's3://{bucket}/{key}')
+                    files.append(f's3://{bucket}/{key}')
 
-        return unloaded_files
+        return files
 
     def delete_query_results_by_prefix(self, s3_prefix_url: str):
         match = re.match(r's3://([^/]+)/(.+)', s3_prefix_url.rstrip('/'))
@@ -148,16 +133,14 @@ class QueryManager:
             raise ValueError("Invalid S3 URL format")
 
         bucket, prefix = match.groups()
-
         paginator = self.s3.get_paginator("list_objects_v2")
         page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
 
-        deleted_any = False
+        count = 0
         for page in page_iterator:
             for obj in page.get("Contents", []):
-                key = obj["Key"]
-                self.s3.delete_object(Bucket=bucket, Key=key)
-                deleted_any = True
+                self.s3.delete_object(Bucket=bucket, Key=obj["Key"])
+                count += 1
 
-        if not deleted_any:
-            print(f"[S3] No files found under prefix: {s3_prefix_url}")
+        if count == 0:
+            print(f"[S3] No files found under: {s3_prefix_url}")

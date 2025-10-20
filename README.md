@@ -1,6 +1,6 @@
 # Hyper Python Utils
 
-![Version](https://img.shields.io/badge/version-0.3.3-blue.svg)
+![Version](https://img.shields.io/badge/version-0.3.4-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![PyPI](https://img.shields.io/pypi/v/hyper-python-utils.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -17,9 +17,11 @@ pip install hyper-python-utils
 
 - **Simple Query Functions (New in v0.2.0)**: Easy-to-use wrapper functions
   - `query()`: Execute Athena queries with minimal setup
-  - `query_unload()`: High-performance queries for large datasets using UNLOAD
+  - `query_unload()`: Execute UNLOAD query and return S3 path
+  - `load_unload_data()`: Load DataFrame from UNLOAD results
+  - `cleanup_unload_data()`: Clean up S3 files (optional)
   - Support for both Pandas and Polars DataFrames
-  - Automatic cleanup and optimized performance
+  - Optimized performance with Parquet + GZIP
 
 - **FileHandler**: S3 file operations with Polars DataFrames
   - Upload/download CSV and Parquet files
@@ -58,12 +60,16 @@ df = hp.query(
 )
 print(type(df))  # <class 'polars.dataframe.frame.DataFrame'>
 
-# For large datasets, use UNLOAD (4x faster, optimized with Parquet + GZIP)
-df = hp.query_unload(
+# For large datasets, use UNLOAD (3-step process for better control)
+# Step 1: Execute query and get S3 path
+s3_path = hp.query_unload(
     database="my_database",
     query="SELECT * FROM large_table WHERE date > '2024-01-01'"
 )
-# Returns pandas DataFrame by default, add option="polars" for Polars
+# Step 2: Load data from S3
+df = hp.load_unload_data(s3_path, option="pandas")  # or option="polars"
+# Step 3: Clean up (optional)
+hp.cleanup_unload_data(s3_path)
 
 # Queries with semicolons are automatically handled
 df = hp.query(database="my_database", query="SELECT * FROM table;")  # Works fine!
@@ -74,87 +80,17 @@ df = hp.query(database="my_database", query="SELECT * FROM table;")  # Works fin
 - Automatic cleanup of temporary files (for `query()` only)
 - No exceptions on empty results (returns empty DataFrame)
 - Query execution time displayed in logs
-- `query_unload()` uses Parquet + GZIP for 4x performance boost (files kept in S3)
+- `query_unload()` uses Parquet + GZIP for 4x performance boost
+- Three-step UNLOAD process for better control: execute, load, cleanup
 
 **When to use which?**
 - `query()`: Normal queries, small to medium datasets (< 1M rows)
-- `query_unload()`: Large datasets (> 1M rows), when performance matters
+- `query_unload()` + `load_unload_data()`: Large datasets (> 1M rows), when performance matters
 
-### FileHandler Usage
-
-```python
-from hyper_python_utils import FileHandler
-import polars as pl
-
-# Initialize FileHandler
-handler = FileHandler(bucket="my-s3-bucket", region="ap-northeast-2")
-
-# Read a file from S3
-df = handler.get_object("data/sample.parquet")
-
-# Upload a DataFrame to S3
-sample_df = pl.DataFrame({"col1": [1, 2, 3], "col2": ["a", "b", "c"]})
-handler.upload_dataframe(sample_df, "output/result.parquet", "parquet")
-
-# Upload with partitioning by range
-handler.upload_dataframe_partitioned_by_range(
-    df, "partitioned_data/", partition_size=50000
-)
-
-# Load all files from a prefix in parallel
-combined_df = handler.load_all_objects_parallel("data/batch_*/", max_workers=4)
-```
-
-### QueryManager Usage (Advanced)
-
-For advanced use cases requiring custom configuration:
-
-```python
-from hyper_python_utils import QueryManager
-import polars as pl
-
-# Initialize QueryManager with custom settings
-query_manager = QueryManager(
-    bucket="my-athena-results",
-    result_prefix="custom/query_results/",
-    auto_cleanup=True  # Default: True - automatically delete query result files after reading
-)
-
-# Method 1: Execute query and get DataFrame result directly
-query = "SELECT * FROM my_table LIMIT 100"
-df = query_manager.query(query, database="my_database")
-print(df)  # Returns empty DataFrame if no results (no exception thrown)
-
-# Choose output format (new in v0.2.0)
-df_polars = query_manager.query(query, database="my_database", output_format="polars")
-df_pandas = query_manager.query(query, database="my_database", output_format="pandas")
-
-# Method 2: Manual query execution with result retrieval
-query_id = query_manager.execute(query, database="my_database")
-result_location = query_manager.wait_for_completion(query_id)
-df = query_manager.get_result(query_id)  # Auto cleanup based on QueryManager setting
-
-# Method 2b: Override auto cleanup for specific query
-df_no_cleanup = query_manager.get_result(query_id, auto_cleanup=False)  # Keep result file
-
-# Method 3: Execute UNLOAD query and get list of output files
-unload_query = """
-UNLOAD (SELECT * FROM my_large_table)
-TO 's3://my-bucket/unloaded-data/'
-WITH (format = 'PARQUET', compression = 'GZIP')
-"""
-output_files = query_manager.unload(unload_query, database="my_database")
-print(f"Unloaded files: {output_files}")
-
-# Manual cleanup of query results
-query_manager.delete_query_results_by_prefix("s3://my-bucket/old-results/")
-
-# Disable auto cleanup for all queries
-query_manager_no_cleanup = QueryManager(
-    bucket="my-athena-results",
-    auto_cleanup=False
-)
-```
+**UNLOAD Process:**
+1. `query_unload()`: Execute query and get S3 directory path
+2. `load_unload_data()`: Load DataFrame from S3 files
+3. `cleanup_unload_data()`: (Optional) Delete files from S3
 
 ## Requirements
 
@@ -163,7 +99,9 @@ query_manager_no_cleanup = QueryManager(
 - polars >= 0.18.0
 - pandas >= 1.5.0
 
-## AWS Configuration
+## Configuration
+
+### AWS Credentials
 
 Make sure your AWS credentials are configured either through:
 - AWS CLI (`aws configure`)
@@ -173,6 +111,57 @@ Make sure your AWS credentials are configured either through:
 Required permissions:
 - S3: `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, `s3:DeleteObject`
 - Athena: `athena:StartQueryExecution`, `athena:GetQueryExecution`
+
+### Required Environment Variables
+
+**IMPORTANT:** You must set the `HYPER_ATHENA_BUCKET` environment variable before using this library.
+
+```bash
+# REQUIRED: Set your S3 bucket for Athena query results
+export HYPER_ATHENA_BUCKET="your-athena-results-bucket"
+
+# OPTIONAL: Set custom query result prefix (default: "query_results/")
+export HYPER_ATHENA_PREFIX="my-custom-prefix/"
+
+# OPTIONAL: Set custom UNLOAD prefix (default: "query_results_for_unload")
+export HYPER_UNLOAD_PREFIX="my-unload-prefix"
+```
+
+**Python Example:**
+```python
+import os
+
+# REQUIRED: Set bucket before importing the library
+os.environ["HYPER_ATHENA_BUCKET"] = "my-company-athena-results"
+
+# OPTIONAL: Customize prefixes
+os.environ["HYPER_ATHENA_PREFIX"] = "analytics/queries/"
+os.environ["HYPER_UNLOAD_PREFIX"] = "analytics/unload"
+
+import hyper_python_utils as hp
+
+# Now you can use the library
+df = hp.query(database="my_db", query="SELECT * FROM table")
+```
+
+**Using .env file:**
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and set your bucket name
+# HYPER_ATHENA_BUCKET=your-actual-bucket-name
+
+# Then use python-dotenv to load it
+```
+
+```python
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file
+
+import hyper_python_utils as hp
+df = hp.query(database="my_db", query="SELECT * FROM table")
+```
 
 ## Changelog
 
