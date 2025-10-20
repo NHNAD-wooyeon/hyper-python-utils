@@ -122,7 +122,12 @@ class QueryManager:
         for page in page_iterator:
             for obj in page.get('Contents', []):
                 key = obj['Key']
-                if key.endswith('.parquet') or key.endswith('.parquet.gz'):
+                # Include Parquet files with or without extension
+                # Athena UNLOAD creates files like: prefix/uuid (without extension)
+                # or with extensions: .parquet, .parquet.gz
+                if (key.endswith('.parquet') or
+                    key.endswith('.parquet.gz') or
+                    (not key.endswith('/') and '.' not in key.split('/')[-1])):
                     files.append(f's3://{bucket}/{key}')
 
         return files
