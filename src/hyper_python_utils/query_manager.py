@@ -24,13 +24,16 @@ class QueryManager:
         self.athena = boto3.client('athena', region_name='ap-northeast-2')
         self.s3 = boto3.client('s3', region_name='ap-northeast-2')
 
-    def execute(self, query: str, database: str) -> str:
+    def execute(self, query: str, source: str = "AwsDataCatalog", database: str = None) -> str:
         # Remove trailing semicolon if present
         query = query.strip().rstrip(';')
 
         response = self.athena.start_query_execution(
             QueryString=query,
-            QueryExecutionContext={'Database': database},
+            QueryExecutionContext={
+                'Database': database,
+                'Catalog': source
+            },
             ResultConfiguration={'OutputLocation': self._s3_output}
         )
         return response['QueryExecutionId']
@@ -89,17 +92,17 @@ class QueryManager:
         except Exception as e:
             raise AthenaQueryError(f"Failed to read query result: {str(e)}")
 
-    def query(self, query: str, database: str, auto_cleanup: bool = None, output_format: Literal["polars", "pandas"] = "polars") -> Union[pl.DataFrame, pd.DataFrame]:
-        query_id = self.execute(query, database)
+    def query(self, query: str, source: str = "AwsDataCatalog", database: str = None, auto_cleanup: bool = None, output_format: Literal["polars", "pandas"] = "polars") -> Union[pl.DataFrame, pd.DataFrame]:
+        query_id = self.execute(query, source, database)
         self.wait_for_completion(query_id)
         return self.get_result(query_id, auto_cleanup=auto_cleanup, output_format=output_format)
 
-    def unload(self, query: str = None, database: str = None, unload_location: str = None) -> list[str]:
+    def unload(self, query: str = None, source: str = "AwsDataCatalog", database: str = None, unload_location: str = None) -> list[str]:
         """
         Execute UNLOAD query or list files from an S3 location.
         """
         if query and database:
-            query_id = self.execute(query, database)
+            query_id = self.execute(query, source, database)
             self.wait_for_completion(query_id)
             search_location = unload_location if unload_location else None
         elif unload_location:

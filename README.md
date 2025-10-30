@@ -1,6 +1,6 @@
 # Hyper Python Utils
 
-![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![PyPI](https://img.shields.io/pypi/v/hyper-python-utils.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -46,16 +46,23 @@ import hyper_python_utils as hp
 
 # Execute a simple query (returns pandas DataFrame by default)
 df = hp.query(
-    database="my_database",
-    query="SELECT * FROM my_table LIMIT 100"
+    query="SELECT * FROM my_table LIMIT 100",
+    database="my_database"
 )
 print(df)
 print(type(df))  # <class 'pandas.core.frame.DataFrame'>
 
+# Specify data source (catalog) - defaults to "AwsDataCatalog"
+df = hp.query(
+    query="SELECT * FROM my_table LIMIT 100",
+    source="MyCustomCatalog",  # Optional, defaults to "AwsDataCatalog"
+    database="my_database"
+)
+
 # Get results as polars DataFrame
 df = hp.query(
-    database="my_database",
     query="SELECT * FROM my_table LIMIT 100",
+    database="my_database",
     option="polars"
 )
 print(type(df))  # <class 'polars.dataframe.frame.DataFrame'>
@@ -63,16 +70,24 @@ print(type(df))  # <class 'polars.dataframe.frame.DataFrame'>
 # For large datasets, use UNLOAD (3-step process for better control)
 # Step 1: Execute query and get S3 path
 s3_path = hp.query_unload(
-    database="my_database",
-    query="SELECT * FROM large_table WHERE date > '2024-01-01'"
+    query="SELECT * FROM large_table WHERE date > '2024-01-01'",
+    database="my_database"
 )
+
+# With custom data source
+s3_path = hp.query_unload(
+    query="SELECT * FROM large_table",
+    source="MyCustomCatalog",
+    database="my_database"
+)
+
 # Step 2: Load data from S3
 df = hp.load_unload_data(s3_path, option="pandas")  # or option="polars"
 # Step 3: Clean up (optional)
 hp.cleanup_unload_data(s3_path)
 
 # Queries with semicolons are automatically handled
-df = hp.query(database="my_database", query="SELECT * FROM table;")  # Works fine!
+df = hp.query(query="SELECT * FROM table;", database="my_database")  # Works fine!
 ```
 
 **Key Features:**
@@ -141,7 +156,7 @@ os.environ["HYPER_UNLOAD_PREFIX"] = "analytics/unload"
 import hyper_python_utils as hp
 
 # Now you can use the library
-df = hp.query(database="my_db", query="SELECT * FROM table")
+df = hp.query(query="SELECT * FROM table", database="my_db")
 ```
 
 **Using .env file:**
@@ -160,7 +175,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file
 
 import hyper_python_utils as hp
-df = hp.query(database="my_db", query="SELECT * FROM table")
+df = hp.query(query="SELECT * FROM table", database="my_db")
 ```
 
 ## Changelog

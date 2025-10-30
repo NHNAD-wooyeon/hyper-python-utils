@@ -26,13 +26,14 @@ _query_manager = QueryManager(
 )
 
 
-def query(database: str, query: str, option: Literal["pandas", "polars"] = "pandas") -> Union[pd.DataFrame, pl.DataFrame]:
+def query(query: str, source: str = "AwsDataCatalog", database: str = None, option: Literal["pandas", "polars"] = "pandas") -> Union[pd.DataFrame, pl.DataFrame]:
     """
     Execute a simple Athena query and return results as a DataFrame.
 
     Args:
-        database: Athena database name
         query: SQL query string (e.g., "SELECT * FROM my_table LIMIT 100")
+        source: Data source (catalog) name (default: "AwsDataCatalog")
+        database: Athena database name
         option: Output format - "pandas" (default) or "polars"
 
     Returns:
@@ -41,14 +42,16 @@ def query(database: str, query: str, option: Literal["pandas", "polars"] = "pand
     Example:
         >>> import hyper_python_utils as hp
         >>> # Returns pandas DataFrame (default)
-        >>> df = hp.query(database="my_database", query="SELECT * FROM my_table LIMIT 100")
+        >>> df = hp.query(query="SELECT * FROM my_table LIMIT 100", database="my_database")
+        >>> # With custom data source
+        >>> df = hp.query(query="SELECT * FROM my_table", source="MyCustomCatalog", database="my_database")
         >>> # Returns polars DataFrame
-        >>> df = hp.query(database="my_database", query="SELECT * FROM my_table LIMIT 100", option="polars")
+        >>> df = hp.query(query="SELECT * FROM my_table LIMIT 100", database="my_database", option="polars")
     """
-    return _query_manager.query(query=query, database=database, output_format=option)
+    return _query_manager.query(query=query, source=source, database=database, output_format=option)
 
 
-def query_unload(database: str, query: str, key: str = None) -> str:
+def query_unload(query: str, source: str = "AwsDataCatalog", database: str = None, key: str = None) -> str:
     """
     Execute an Athena UNLOAD query and return the S3 directory path where files are stored.
 
@@ -58,9 +61,10 @@ def query_unload(database: str, query: str, key: str = None) -> str:
     3. cleanup_unload_data() - (Optional) Delete files from S3
 
     Args:
-        database: Athena database name
         query: SQL SELECT query (only the inner SELECT part, without UNLOAD TO syntax)
                Example: "SELECT * FROM my_table WHERE date > '2024-01-01'"
+        source: Data source (catalog) name (default: "AwsDataCatalog")
+        database: Athena database name
         key: S3 key prefix (default: uses HYPER_UNLOAD_PREFIX env var or "query_results_for_unload")
 
     Returns:
@@ -71,8 +75,15 @@ def query_unload(database: str, query: str, key: str = None) -> str:
         >>> import hyper_python_utils as hp
         >>> # Step 1: Execute UNLOAD query and get S3 path
         >>> s3_path = hp.query_unload(
-        ...     database="my_database",
-        ...     query="SELECT * FROM large_table WHERE date > '2024-01-01'"
+        ...     query="SELECT * FROM large_table WHERE date > '2024-01-01'",
+        ...     database="my_database"
+        ... )
+        >>>
+        >>> # With custom data source
+        >>> s3_path = hp.query_unload(
+        ...     query="SELECT * FROM large_table",
+        ...     source="MyCustomCatalog",
+        ...     database="my_database"
         ... )
         >>>
         >>> # Step 2: Load data from S3
@@ -100,7 +111,7 @@ def query_unload(database: str, query: str, key: str = None) -> str:
     WITH (format='PARQUET', compression='GZIP')
     """
 
-    query_id = _query_manager.execute(query=unload_query, database=database)
+    query_id = _query_manager.execute(query=unload_query, source=source, database=database)
     _query_manager.wait_for_completion(query_id)
 
     print(f"[UNLOAD] Files created at: {s3_location}")
@@ -120,7 +131,7 @@ def load_unload_data(s3_directory: str, option: Literal["pandas", "polars"] = "p
 
     Example:
         >>> import hyper_python_utils as hp
-        >>> s3_path = hp.query_unload(database="my_db", query="SELECT * FROM table")
+        >>> s3_path = hp.query_unload(query="SELECT * FROM table", database="my_db")
         >>> df = hp.load_unload_data(s3_path, option="pandas")
 
     Note:
@@ -156,7 +167,7 @@ def cleanup_unload_data(s3_directory: str) -> None:
 
     Example:
         >>> import hyper_python_utils as hp
-        >>> s3_path = hp.query_unload(database="my_db", query="SELECT * FROM table")
+        >>> s3_path = hp.query_unload(query="SELECT * FROM table", database="my_db")
         >>> df = hp.load_unload_data(s3_path)
         >>> hp.cleanup_unload_data(s3_path)
 
