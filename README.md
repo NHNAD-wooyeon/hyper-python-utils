@@ -1,6 +1,6 @@
 # Hyper Python Utils
 
-![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.5.1-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![PyPI](https://img.shields.io/pypi/v/hyper-python-utils.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)

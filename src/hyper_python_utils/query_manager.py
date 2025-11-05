@@ -38,7 +38,7 @@ class QueryManager:
         )
         return response['QueryExecutionId']
 
-    def wait_for_completion(self, query_id: str, interval: int = 5, timeout: int = 300) -> str:
+    def wait_for_completion(self, query_id: str, interval: int = 5, timeout: int = 1800) -> str:
         start_time = time.time()
         while True:
             response = self.athena.get_query_execution(QueryExecutionId=query_id)
